@@ -1,0 +1,338 @@
+#!/usr/bin/env perl
+# --- [looplimit] [from_i] [to_i]
+use strict; use warnings; no warnings 'uninitialized'; use 5.010; no if ($^V ge v5.18.0), warnings => 'experimental::smartmatch';
+use Carp;
+$SIG{__DIE__} = sub { Carp::confess @_ };
+
+use Data::Dumper;
+use Time::HiRes qw(time);
+
+our $LOOPLIMIT; # debug
+
+our $Groups= 1; # 5; # How many sets of leds
+our $GroupSize= 1; # 3; # how many leds/group
+
+# struct rgb { red => , green=>, blue=> }; bytes
+# We use indexes into Colors for the Groups, so that we can pick new random "to" later.
+# struct from_to { from => rgb_i, to => rgb_i, last => argb, end_at => end-msec, duration => msec, corner => rgb_cached_corner_calc };
+our @Groups; # [Groups] of from_to*
+our $Purple = RGB->new( red => 101, blue=>102, green=>3 );
+our $Yellow = RGB->new( red => 1, blue=>101, green=>103 );
+our $Orange = RGB->new( red=>101, blue=>2, green=>103 );
+# need the list so we can pick random ones
+our @Colors = ( $Purple, $Orange, $Yellow ); # 3
+our $ColorLen = scalar(@Colors); # how many (for picking)
+# Fade for $FadeTime + rand($FadeVariableTime)
+our $FadeTime = 3000;
+our $FadeVariableTime = 1000;
+
+sub init() {
+    say "Setup neopixel";
+
+    say "Setup array of Groups, from colors:";
+    for (my $i=0; $i<$ColorLen; $i++) {
+      say "Color $i ",$Colors[$i];
+      }
+
+    say "Random start:";
+    for(my $i=0; $i<$GroupSize; $i++) {
+        my %a_group = ( from => $ARGV[0] // int(rand($ColorLen)), end_at => undef, to => undef, duration => undef ); 
+        choose_new_to( \%a_group );
+
+        # my %last;
+        # %last = %{ $Colors[$a_group{'from'}] };
+        # $a_group{'last'} = \%last;
+        say Dumper(\%a_group);
+        say "Setup group [$i] ",$Colors[$a_group{'from'}]," -> ",$Colors[$a_group{'to'}];
+        $Groups[$i] = \%a_group;
+
+        display_group($i, $Colors[ $a_group{'from'} ] );
+        say " fades for ",$a_group{'duration'};
+        }
+
+    say "setup done";
+    say "-----";
+    }
+
+sub xloop() {
+  say "|",ard_map(11, 0,3794, 100,0),"|";
+  die;
+  }
+
+sub loop() {
+    state $loopct;
+    exit(1) if $LOOPLIMIT && millis() > $LOOPLIMIT;
+
+    say "\nEACH GROUP @",millis();
+    for (my $group_i=0; $group_i < $GroupSize; $group_i++) {
+      my $group = $Groups[$group_i];
+      my $now = millis();
+      if ($group->{'end_at'} < $now) {
+        # new to/end_at
+        $group->{'from'} = int(rand($ColorLen)); 
+        choose_new_to( $group );
+        die "Reset [$group_i] ",$Colors[$group->{'from'}]," -> ",$Colors[$group->{'to'}];
+        next;
+        }
+
+      # we are wasteful, we recalculate everybody each time, AND set them each time
+      my $nextrgb;
+      # linear_next_rgb($group_i, $now, \$nextrgb);
+      $nextrgb = edgepath_next_rgb($group_i, $now);
+      display_group($group_i, $nextrgb);
+      say $group_i;
+      }
+    delay(100);
+    }
+
+sub choose_new_to {
+    # Assumes 'from' is set, chooses a random 'to' and 'end_at'
+    my ($group) = @_;
+    $group->{'end_at'} = millis() + $FadeTime + int(rand($FadeVariableTime));
+    $group->{'duration'} = $group->{'end_at'}-millis();
+    # 'to' is one of the _other_ colors, so add 1|2 and do modulus to force it right
+    $group->{'to'} = $ARGV[1] // ((int(rand($ColorLen-1)) + 1 + $group->{'from'}) % $ColorLen);
+    $group->{'corner'} = undef;
+    }
+
+sub display_group {
+    # Make the led(s) show the value
+    my ($groupi, $rgb) = @_;
+    say "display group [$groupi] to ",$rgb;
+    # convert from a group_index to a 0..index
+    my $from = $groupi * $GroupSize;
+    my $to = $from + $GroupSize;
+    # Set GroupSize leds:
+    for (my $neo_i=$from; $neo_i<$to; $neo_i++) {
+        say "== [$neo_i] $rgb @ ",millis();
+        }
+    }
+
+sub edgepath_next_rgb {
+  my ($group_i, $end_at_time) = @_;
+  # We want the "fade" (aka gradient) to follow the closest edges of the rgb triangle
+  # So, 'from' is closest to some edge.
+  # And, 'to' is closest to some edge.
+  # The direction of the first path is towards the closes "corner" of from/to
+  # So, move proportionally along the distance of the first edge, then the second.
+ 
+  my $group = $Groups[$group_i];
+
+  my $from = $Colors[ $group->{'from'} ];
+  my $to = $Colors[ $group->{'to'} ];
+  if (!defined $group->{'corner'}) {
+    # calc and cache the corner
+    say "calc $from -> $to";
+    my $corner = $from->clone;
+    $corner->along_our_min_to_their_min($to);
+    say "  $from -> $corner -> $to";
+    $group->{'corner'} = $corner;
+    say "Edge[$group_i] $from -> ",$group->{'corner'}," -> $to"; 
+    }
+
+  # Now we know $now, and $end_at, $duration, and from->corner->to
+  # so, just calc the proper point along those 2 line segments
+  my $gradient_color = proportional_color_along( $group,  $end_at_time );
+  say "  next rgb $gradient_color @ $end_at_time";
+
+=off
+  # "fade" to the first point: the "nearest" corner
+  # which is the minimum_component of 'to', 
+  # this is || operator
+  first = min_component(to), min_component(from)==ident, other is +/- same dist as first dim dist
+    find the min_component of (to), calc distance = to[i]-from[i]
+    first = from - dist for all components
+    find the min_component(from), first[i] = from[i]
+  second = to
+  total dist = from->first->second # distances are simply b-a
+  sofar = map total-distance:duration
+  if sofar <= first distance, 
+    move linearly from->first per sofar/total-dist
+  else
+    move linearly first->second per (sofar - first-dist)/second-dist
+=cut 
+  $gradient_color;
+  }
+
+sub proportional_color_along {
+  my ($group, $now) = @_;
+
+  my $from = $Colors[ $group->{'from'} ];
+  my $to = $Colors[ $group->{'to'} ];
+
+  say "  prop color of $from -> ",$group->{'corner'}," -> $to";
+  my $distance_to_corner = $from->distance($group->{'corner'});
+  my $total_len = $distance_to_corner + $group->{'corner'}->distance($to);
+  my $duration = $group->{'duration'};
+  my $elapsed_t = $duration - ($group->{'end_at'} - $now); ## FIXME: if end_at < $now, then calc next 'to'
+  my $distance_to_now = $total_len * $elapsed_t / $duration; # i.e. dist proportional to elapsed time
+  say "    $total_len : $distance_to_now = $duration : $elapsed_t";
+
+  my $next_rgb = RGB->new;
+  if ($distance_to_now <= $distance_to_corner) {
+    $next_rgb->proportional_rgb( $from, $group->{'corner'}, $distance_to_now, $distance_to_corner);
+    }
+  elsif ($distance_to_now <= $total_len) {
+    my $distance_from_corner = $total_len - $distance_to_corner;
+    $next_rgb->proportional_rgb( $group->{'corner'}, $to, $distance_to_now-$distance_to_corner, $distance_from_corner);
+    }
+  else {
+    die "past!";
+    }
+  return $next_rgb;
+  }
+
+sub linear_next_rgb {
+  # Figures the rgb for time $end_at
+  my ($group_i, $end_at, $rez) = @_;
+  my $group = $Groups[ $group_i ];
+  my $target_end_at = $group->{'end_at'};
+  my $duration = $group->{'duration'};
+  $rez->red = linear_value_at($end_at, $target_end_at, $duration, $Colors[ $group->{'from'} ]->red, $Colors[ $group->{'to'} ]->red);
+  $rez->green = linear_value_at($end_at, $target_end_at, $duration, $Colors[ $group->{'from'} ]->green, $Colors[ $group->{'to'} ]->green);
+  $rez->blue = linear_value_at($end_at, $target_end_at, $duration, $Colors[ $group->{'from'} ]->blue, $Colors[ $group->{'to'} ]->blue);
+  }
+
+sub linear_value_at {
+  # figure the value for one of rgb. just linear.
+  my ($end_at, $target_end_at, $duration, $from, $to) = @_;
+  
+  # Nothing to do if from==to
+  if ($from==$to) { return $from; };
+
+  my $time_left = $target_end_at - $end_at;
+
+  # No duration left
+  if ($time_left <= 0) {
+    return $to;
+    }
+
+  my $rez =  ard_map($duration-$time_left, 0,$duration, $from, $to, );
+  say "  $end_at: [0,$duration]->[$from,$to]( $duration-$time_left=",$duration-$time_left," ) = $rez";
+  return $rez;
+  }
+
+
+####
+sub millis {
+    state $start;
+    $start = time() if (!$start) ;
+
+    int((time() - $start) * 1000);
+    }
+
+sub ard_map {
+  my ($x, $in_min, $in_max, $out_min, $out_max) = @_;
+  # say "  [$in_min,$in_max]->[$out_min,$out_max]($x)";
+  return int( ((($x - $in_min) * ($out_max - $out_min)) / ($in_max - $in_min)) + $out_min );
+  }
+
+sub delay {
+  my ($delay) = @_;
+  my $start = millis();
+  while ($start + $delay >= millis()) {}
+  say "delayed $delay ",millis();
+  }
+
+$LOOPLIMIT=shift @ARGV;
+init();
+while(1) { loop();}
+
+package RGB;
+  use overload '""' => 'stringify';
+
+  use Class::Tiny qw( red blue green);
+  use Scalar::Util;
+
+  sub clone {
+    my $self=shift;
+    RGB->new( red=>$self->red, blue=>$self->blue, green=>$self->green);
+    }
+
+  sub stringify {
+    my $self=shift;
+    sprintf "<0x%x>(%d, %d, %d)",Scalar::Util::refaddr($self),$self->red,$self->green,$self->blue;
+    }
+
+  sub brightness {
+    my $self=shift;
+    sqrt($self->red**2 + $self->green**2 + $self->blue**2);
+    }
+
+  sub along_our_min_to_their_min {
+    # keep our min the same, update some component to their min, and set the remaining one to "avg brightness"
+    my $self=shift;
+    my ($b) = @_;
+    say "  along $self to nearest corner with $b";
+
+    if ($self->red <= $self->blue && $self->red <= $self->green) {
+      say "    our red";
+      if ($b->blue <= $b->green) {
+        my $from_brightness = $self->brightness; # aka "from" before we update
+        my $want_brightness = ($from_brightness + $b->brightness)/2;
+        say "    (to blue) @ brightness $from_brightness/",$b->brightness," = $want_brightness";
+        $self->blue($b->blue); # b's min
+        $self->green( sqrt(abs($want_brightness**2 - $self->red**2 - $self->blue**2)) ); # "avg" brightness
+        }
+      else {
+        say "    (to green)";
+        $self->green($b->green);
+        $self->blue( sqrt( (($self->blue+$b->blue)/2)^2 + (($self->green+$b->green)/2)^2) );
+        }
+      }
+    elsif ($self->blue <= $self->red && $self->blue <= $self->green) {
+      say "    blue";
+      if ($b->red <= $b->green) {
+        say "    (red)";
+        $self->red($b->red);
+        $self->green( sqrt( (($self->red+$b->red)/2)^2 + (($self->green+$b->green)/2)^2) );
+        }
+      }
+
+    say "    corner: $self";
+    }
+
+
+  sub just_min_component {
+    # update ourselves with the min component of $b
+    my $self=shift;
+    my ($b) = @_;
+
+    say "  min of $b into $self...";
+    # could optimize this
+    if ($b->red <= $b->blue && $b->red <= $b->green) {
+      say "    red";
+      $self->red($b->red);
+      }
+    if ($b->blue <= $b->red && $b->blue <= $b->green) {
+      say "    blue";
+      $self->blue($b->blue);
+      }
+    if ($b->green <= $b->red && $b->green <= $b->blue) {
+      say "    green";
+      $self->green($b->green);
+      }
+    say "    => $self";
+    return $self;
+    }  
+  
+  sub distance {
+    # distance to $b
+    my $self=shift;
+    my ($other) = @_;
+
+    my $r = abs($other->red - $self->red);
+    my $g = abs($other->green - $self->green);
+    my $b = abs($other->blue - $self->blue);
+    sqrt( $b**2 + $g**2 + $b**2);
+    }
+  
+  sub proportional_rgb {
+    my $self=shift;
+    my ($from, $to, $delta_d, $total_dist) = @_;
+    $self->red( ::ard_map($delta_d, 0, $total_dist, $from->red, $to->red) );
+    $self->green( ::ard_map($delta_d, 0, $total_dist, $from->green, $to->green) );
+    $self->blue( ::ard_map($delta_d, 0, $total_dist, $from->blue, $to->blue) );
+    }
+
+  
