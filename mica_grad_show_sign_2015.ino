@@ -1,42 +1,47 @@
-#!/usr/bin/env perl
-# --- [looplimit] [from_i] [to_i]
-use strict; use warnings; no warnings 'uninitialized'; use 5.010; no if ($^V ge v5.18.0), warnings => 'experimental::smartmatch';
-use Carp;
-$SIG{__DIE__} = sub { Carp::confess @_ };
+// #include <serial.h>
+#include "tired_of_serial.h"
+#include "RGB.h"
+#include "magic.h"
 
-use Data::Dumper;
-use Time::HiRes qw(time);
-use Inline 'CPP';
+long LOOPLIMIT = 3000; // debug
 
-my $F = Farmer->new("bob",1);
+const int GroupCt = 1; // 5; // How many sets of leds
+const int GroupSize = 1; // 3; // how many leds/group
 
-our $LOOPLIMIT; # debug
+struct group_struct { 
+  // We use indexes into Colors for the Groups, so that we can pick new random "to" later.
+  byte from; // Color[i]
+  byte to; // Color[i]
+  long end_at; // end millis
+  long duration; // how long a cyle is millis
+  // RGB *corner; // rgb_cached_corner_calc
+  };
+group_struct Groups[ GroupCt ];
+// r,g,b
+RGB Purple = RGB( 101, 102, 3 );
+RGB Yellow = RGB( 1, 101, 103 );
+RGB Orange = RGB( 101, 2, 103 );
 
-our $Groups= 1; # 5; # How many sets of leds
-our $GroupSize= 1; # 3; # how many leds/group
+// need the list so we can pick random ones
+RGB *Colors[] = { &Purple, &Orange, &Yellow };
+int ColorLen = arraysize(Colors);
 
-# struct rgb { red => , green=>, blue=> }; bytes
-# We use indexes into Colors for the Groups, so that we can pick new random "to" later.
-# struct from_to { from => rgb_i, to => rgb_i, last => argb, end_at => end-msec, duration => msec, corner => rgb_cached_corner_calc };
-our @Groups; # [Groups] of from_to*
-# r,g,b
-our $Purple = RGB->new( 101, 102, 3 );
-our $Yellow = RGB->new( red => 1, blue=>101, green=>103 );
-our $Orange = RGB->new( red=>101, blue=>2, green=>103 );
-# need the list so we can pick random ones
-our @Colors = ( $Purple, $Orange, $Yellow ); # 3
-our $ColorLen = scalar(@Colors); # how many (for picking)
-# Fade for $FadeTime + rand($FadeVariableTime)
-our $FadeTime = 3000;
-our $FadeVariableTime = 1000;
+// Fade for $FadeTime + rand($FadeVariableTime)
+long FadeTime = 3000;
+long FadeVariableTime = 1000;
 
-sub init() {
-    say "Setup neopixel";
+void setup() {
+  Serial.begin(9600);
+  print("Setup led-thingy\n");
 
-    say "Setup array of Groups, from colors:";
-    for (my $i=0; $i<$ColorLen; $i++) {
-      say "Color $i ",$Colors[$i];
-      }
+  print( "Setup array of Groups, from colors:\n" );
+  for (int i=0; i<ColorLen; i++) {
+    // print "Color i ",Colors[i];
+    }
+  }
+
+/*
+
 
     say "Random start:";
     for(my $i=0; $i<$GroupSize; $i++) {
@@ -62,7 +67,12 @@ sub xloop() {
   say "|",ard_map(11, 0,3794, 100,0),"|";
   die;
   }
+*/
 
+void loop() {
+  }
+
+/*
 sub loop() {
     state $loopct;
     exit(1) if $LOOPLIMIT && millis() > $LOOPLIMIT;
@@ -239,127 +249,4 @@ sub delay {
   }
 
 $LOOPLIMIT=shift @ARGV;
-init();
-while(1) { loop();}
-
-package xRGB;
-  use overload '""' => 'stringify';
-
-  use Class::Tiny qw( red blue green);
-  use Scalar::Util;
-
-  sub clone {
-    my $self=shift;
-    RGB->new( red=>$self->red, blue=>$self->blue, green=>$self->green);
-    }
-
-  sub stringify {
-    my $self=shift;
-    sprintf "<0x%x>(%d, %d, %d)",Scalar::Util::refaddr($self),$self->red,$self->green,$self->blue;
-    }
-
-  sub brightness {
-    my $self=shift;
-    sqrt($self->red**2 + $self->green**2 + $self->blue**2);
-    }
-
-  sub along_our_min_to_their_min {
-    # keep our min the same, update some component to their min, and set the remaining one to "avg brightness"
-    my $self=shift;
-    my ($b) = @_;
-    say "  along $self to nearest corner with $b";
-
-    if ($self->red <= $self->blue && $self->red <= $self->green) {
-      say "    our red";
-      if ($b->blue <= $b->green) {
-        my $from_brightness = $self->brightness; # aka "from" before we update
-        my $want_brightness = ($from_brightness + $b->brightness)/2;
-        say "    (to blue) @ brightness $from_brightness/",$b->brightness," = $want_brightness";
-        $self->blue($b->blue); # b's min
-        $self->green( sqrt(abs($want_brightness**2 - $self->red**2 - $self->blue**2)) ); # "avg" brightness
-        }
-      else {
-        say "    (to green)";
-        $self->green($b->green);
-        $self->blue( sqrt( (($self->blue+$b->blue)/2)^2 + (($self->green+$b->green)/2)^2) );
-        }
-      }
-    elsif ($self->blue <= $self->red && $self->blue <= $self->green) {
-      say "    blue";
-      if ($b->red <= $b->green) {
-        say "    (red)";
-        $self->red($b->red);
-        $self->green( sqrt( (($self->red+$b->red)/2)^2 + (($self->green+$b->green)/2)^2) );
-        }
-      }
-
-    say "    corner: $self";
-    }
-
-
-  sub just_min_component {
-    # update ourselves with the min component of $b
-    my $self=shift;
-    my ($b) = @_;
-
-    say "  min of $b into $self...";
-    # could optimize this
-    if ($b->red <= $b->blue && $b->red <= $b->green) {
-      say "    red";
-      $self->red($b->red);
-      }
-    if ($b->blue <= $b->red && $b->blue <= $b->green) {
-      say "    blue";
-      $self->blue($b->blue);
-      }
-    if ($b->green <= $b->red && $b->green <= $b->blue) {
-      say "    green";
-      $self->green($b->green);
-      }
-    say "    => $self";
-    return $self;
-    }  
-  
-  sub distance {
-    # distance to $b
-    my $self=shift;
-    my ($other) = @_;
-
-    my $r = abs($other->red - $self->red);
-    my $g = abs($other->green - $self->green);
-    my $b = abs($other->blue - $self->blue);
-    sqrt( $b**2 + $g**2 + $b**2);
-    }
-  
-  sub proportional_rgb {
-    my $self=shift;
-    my ($from, $to, $delta_d, $total_dist) = @_;
-    $self->red( ::ard_map($delta_d, 0, $total_dist, $from->red, $to->red) );
-    $self->green( ::ard_map($delta_d, 0, $total_dist, $from->green, $to->green) );
-    $self->blue( ::ard_map($delta_d, 0, $total_dist, $from->blue, $to->blue) );
-    }
-
-# CPP classes
-__END__ 
-# cripes. cpp line # is about 15+
-__CPP__
-// arduino compat
-typedef unsigned char byte;
-
-class RGB {
-  public:
-    RGB(byte r, byte g, byte b) : v_red(r), v_green(g), v_blue(b) {}
-    ~RGB(); // FIXME: private for arduino, unimpl
-    byte red() { return this->v_red; }
-    byte green() { return this->v_green; }
-    byte blue() { return this->v_blue; }
-  private:
-    byte v_red;  
-    byte v_green;  
-    byte v_blue;  
-
-  };
-class Farmer {
-  public:
-  Farmer(char *name, int age);
-};
+*/
