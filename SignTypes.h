@@ -1,3 +1,20 @@
+// #define debug_output
+#ifdef debug_output
+  #define debug_output2
+  #define debug(x) print(x)
+  #define debugln() println()
+#else
+  #define debug(x)
+  #define debugln()
+#endif
+#ifdef debug_output2
+  #define debug2(x) print(x)
+  #define debugln2() println()
+#else
+  #define debug2(x)
+  #define debugln2()
+#endif
+
 class RGB;
 
 void print(RGB &rgb);
@@ -20,6 +37,7 @@ class RGB {
     void along_our_min_to_their_min(RGB &other);
     unsigned int distance(RGB &other);
     void proportional_rgb(RGB &from, RGB &to, unsigned int delta_d, unsigned int total_dist);
+    uint32_t as_uint() { return ((uint32_t)this->red())<<16 + ((uint32_t)this->green())<<8 + (uint32_t)this->blue(); }
 
   private:
     byte v_red; // 255 means "not calc'd yet", a bit hinky
@@ -48,50 +66,55 @@ unsigned int RGB::distance(RGB &other) {
   
 void RGB::along_our_min_to_their_min(RGB &other) {
   // keep our min the same, update some component to their min, and set the remaining one to "avg brightness"
-  print( "  along ");print(this);print(" to nearest corner with other");println();
+  debug( "  along ");debug(this);debug(" to nearest corner with other");debugln();
 
   byte from_brightness = this->brightness(); // aka "from" before we update
   byte want_brightness = (from_brightness + other.brightness())/2;
 
   // same pattern 3 times. sigh
   if (this->red() <= this->blue() && this->red() <= this->green()) {
-    print( "    our red");println();
+    debug( "    our red");debugln();
     if (other.blue() <= other.green()) {
-      print( "    (to blue) @ brightness "); print(from_brightness);print("/");print(other.brightness());print(" = ");print(want_brightness);println();
+      debug( "    (to blue) @ brightness "); debug(from_brightness);debug("/");debug(other.brightness());debug(" = ");debug(want_brightness);debugln();
       this->blue(other.blue()); // other's min
       this->green( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->red(),2) - pow((float)this->blue(),2))) ); // "avg" brightness
       }
     else {
-      print( "    (to green)");println();
+      debug( "    (to green) @ brightness "); debug(from_brightness);debug("/");debug(other.brightness());debug(" = ");debug(want_brightness);debugln();
       this->green(other.green());
       this->blue( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->red(),2) - pow((float)this->green(),2))) ); // "avg" brightness
       }
     }
 
   else if (this->blue() <= this->red() && this->blue() <= this->green()) {
-    print( "    our blue\n");
+    debug( "    our blue @ brightness "); debug(from_brightness);debug("/");debug(other.brightness());debug(" = ");debug(want_brightness);debugln();
     if (other.red() <= other.green()) {
-      print( "    (red)\n");
-      this->red(other.red());
-      this->green( sqrt( ((this->red()+other.red())/2)^2 + ((this->green()+other.green())/2)^2) );
+      debug( "    (to red) @ brightness "); debug(from_brightness);debug("/");debug(other.brightness());debug(" = ");debug(want_brightness);debugln();
+      this->red(other.red()); // other's min
+      this->green( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->red(),2) - pow((float)this->blue(),2))) ); // "avg" brightness
+      }
+    else {
+      debug( "    (to green) @ brightness "); debug(from_brightness);debug("/");debug(other.brightness());debug(" = ");debug(want_brightness);debugln();
+      this->green(other.green()); // other's min
+      this->red( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->green(),2) - pow((float)this->blue(),2))) ); // "avg" brightness
       }
     }
 
   else {
-    print("    our green\n");
+    debug("    our green\n");
     if (other.red() <= other.blue()) {
-      print( "    (to red) @ brightness "); print(from_brightness);print("/");print(other.brightness());print(" = ");print(want_brightness);println();
+      debug( "    (to red) @ brightness "); debug(from_brightness);debug("/");debug(other.brightness());debug(" = ");debug(want_brightness);debugln();
       this->red(other.red()); // other's min
       this->blue( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->green(),2) - pow((float)this->red(),2))) ); // "avg" brightness
       }
     else {
-      print( "    (to blue) @ brightness "); print(from_brightness);print("/");print(other.brightness());print(" = ");print(want_brightness);println();
+      debug( "    (to blue) @ brightness "); debug(from_brightness);debug("/");debug(other.brightness());debug(" = ");debug(want_brightness);debugln();
       this->blue(other.blue());
       this->red( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->blue(),2) - pow((float)this->green(),2))) ); // "avg" brightness
       }
     }
 
-  print( "    corner: ");print(this);println();
+  debug( "    corner: ");debug(this);debugln();
   }
 
 byte RGB::brightness() {
