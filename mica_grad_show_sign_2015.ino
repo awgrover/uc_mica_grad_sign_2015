@@ -2,7 +2,11 @@
 #include "tired_of_serial.h"
 #include "SignTypes.h"
 
-unsigned long LOOPLIMIT = 3000; // debug, msecs to limit
+const unsigned long LOOPLIMIT = 3000; // debug, msecs to limit
+const int RedPin = 10;
+const int GreenPin = 9;
+const int BluePin = 11;
+#define debug print
 
 const int GroupCt = 1; // 5; // How many sets of leds
 const int GroupSize = 1; // 3; // how many leds/group
@@ -10,19 +14,20 @@ const int GroupSize = 1; // 3; // how many leds/group
 group_struct Groups[ GroupCt ];
 
 // r,g,b
+// FIXME: ought to all be const, but c++
 RGB Purple = RGB( 101, 102, 3 );
 RGB Yellow = RGB( 1, 101, 103 );
 RGB Orange = RGB( 101, 2, 103 );
 
 // need the list so we can pick random ones
 RGB *Colors[] = { &Purple, &Orange, &Yellow };
+
 template <typename T,unsigned S> inline unsigned arraysize(const T (&v)[S]) { return S; }; // magic
+const int ColorLen = arraysize(Colors);
 
-int ColorLen = arraysize(Colors);
-
-// Fade for $FadeTime + rand($FadeVariableTime)
-unsigned long FadeTime = 3000;
-unsigned long FadeVariableTime = 1000;
+// Fade for FadeTime + rand(FadeVariableTime)
+const unsigned long FadeTime = 3000;
+const unsigned long FadeVariableTime = 1000;
 
 void setup() {
   Serial.begin(9600);
@@ -31,6 +36,7 @@ void setup() {
     print( "Random start:\n" );
     for(int i=0; i<GroupSize; i++) {
         group_struct &a_group = Groups[i];
+        print("  group ");print(i);print(" ");print((long)&(Groups[i]));print(" local ");print((long)&a_group);println();
         a_group.from = random(ColorLen);
         a_group.end_at = 0;
         a_group.to = NULL;
@@ -52,26 +58,25 @@ void loop() {
   if (LOOPLIMIT && millis() > LOOPLIMIT) { while(1) {} } // freeze at limit
   
 
-    print( "\nEACH GROUP @"); print(millis()); println();
-    for (int group_i=0; group_i < GroupSize; group_i++) {
-      group_struct &group = Groups[group_i];
-      unsigned long now = millis();
-      if (group.end_at < now) {
-        // new to/end_at
-        group.from = random(ColorLen); 
-        choose_new_to( group );
-        print( "Reset ["); print(group_i); print("] ");print(Colors[group.from]); print(" -> ");print(Colors[group.to]);println();
-        continue;
-        }
-
-      // we are wasteful, we do everybody each time, AND set them each time
-      RGB nextrgb;
-      edgepath_next_rgb(group_i, now, nextrgb);
-      display_group(group_i, nextrgb);
-      print(group_i);println();
+  print( "\nEACH GROUP @"); print(millis()); println();
+  for (int group_i=0; group_i < GroupSize; group_i++) {
+    group_struct &group = Groups[group_i];
+    unsigned long now = millis();
+    if (group.end_at < now) {
+      // new to/end_at
+      group.from = random(ColorLen); 
+      choose_new_to( group );
+      print( "Reset ["); print(group_i); print("] ");print(Colors[group.from]); print(" -> ");print(Colors[group.to]);println();
+      continue;
       }
-    delay(100);
+
+    // we are wasteful, we do everybody each time, AND set them each time
+    RGB nextrgb;
+    edgepath_next_rgb(group_i, now, nextrgb);
+    display_group(group_i, nextrgb);
     }
+  //delay(100);
+  }
 
 
 void choose_new_to(group_struct &group) {
@@ -92,6 +97,9 @@ void display_group(int groupi, RGB &rgb) {
     // display n=GroupSize leds:
     for (int neo_i=fromi; neo_i<toi; neo_i++) {
         print("== [");print(neo_i); print("] ");print(rgb);print(" @ ");print(millis());println();
+        analogWrite(RedPin, rgb.red());
+        analogWrite(GreenPin, rgb.green());
+        analogWrite(BluePin, rgb.blue());
         }
     }
 
@@ -107,10 +115,10 @@ void edgepath_next_rgb(int group_i, unsigned long end_at_time, RGB &gradient_col
   RGB *from = Colors[ group.from ];
   RGB *to = Colors[ group.to ];
 
-  if (group.corner.red()==-1) { // flag for not-calc'd
+  if (group.corner.red()==255) { // flag for not-calc'd
     // calc and cache the corner
     print( "calc "); print(*from); print(" -> "); print(*to);println();
-    RGB &corner = *from;
+    RGB &corner = group.corner;
     corner.along_our_min_to_their_min(*to);
     print("  ");print(from); print(" -> "); print(corner); print(" -> "); print(to); println();
     print( "Edge["); print(group_i); print("] "); print(from); print(" -> "); print(group.corner);print(" -> ");print(to);println(); 
@@ -134,7 +142,7 @@ void proportional_color_along( group_struct &group,  unsigned long end_at_time, 
   unsigned long duration = group.duration;
   unsigned long elapsed_t = duration - (group.end_at - end_at_time); // FIXME: if end_at < end_at_time, then calc next 'to'
   // FIXME: check math-under/overflow:
-  unsigned int distance_to_now = total_len * elapsed_t / duration; // i.e. dist proportional to elapsed time
+  unsigned int distance_to_now = total_len * ((float)elapsed_t / duration); // i.e. dist proportional to elapsed time
   print("    ");print(total_len);print(" : ");print(distance_to_now);print(" = ");print(duration);print(" : ");print(elapsed_t);println();
 
   if (distance_to_now <= distance_to_corner) {
@@ -142,6 +150,7 @@ void proportional_color_along( group_struct &group,  unsigned long end_at_time, 
     }
   else if (distance_to_now <= total_len) {
     unsigned int distance_from_corner = total_len - distance_to_corner;
+    print("2:");
     gradient_color.proportional_rgb( group.corner, to, distance_to_now-distance_to_corner, distance_from_corner);
     }
   else {

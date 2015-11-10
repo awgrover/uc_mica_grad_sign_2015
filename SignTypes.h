@@ -22,7 +22,7 @@ class RGB {
     void proportional_rgb(RGB &from, RGB &to, unsigned int delta_d, unsigned int total_dist);
 
   private:
-    byte v_red; // -1 means "not calc'd yet"
+    byte v_red; // 255 means "not calc'd yet", a bit hinky
     byte v_green;  
     byte v_blue;  
 
@@ -43,42 +43,59 @@ unsigned int RGB::distance(RGB &other) {
   byte r = abs(other.red() - this->red());
   byte g = abs(other.green() - this->green());
   byte b = abs(other.blue() - this->blue());
-  (unsigned int) sqrt( (float)r*r + (float)g*g + (float)b*b);
+  return (unsigned int) sqrt( (float)r*r + (float)g*g + (float)b*b);
   }
   
 void RGB::along_our_min_to_their_min(RGB &other) {
   // keep our min the same, update some component to their min, and set the remaining one to "avg brightness"
   print( "  along ");print(this);print(" to nearest corner with other");println();
 
+  byte from_brightness = this->brightness(); // aka "from" before we update
+  byte want_brightness = (from_brightness + other.brightness())/2;
+
+  // same pattern 3 times. sigh
   if (this->red() <= this->blue() && this->red() <= this->green()) {
     print( "    our red");println();
     if (other.blue() <= other.green()) {
-      byte from_brightness = this->brightness(); // aka "from" before we update
-      byte want_brightness = (from_brightness + other.brightness())/2;
       print( "    (to blue) @ brightness "); print(from_brightness);print("/");print(other.brightness());print(" = ");print(want_brightness);println();
       this->blue(other.blue()); // other's min
-      this->green( sqrt(abs(pow((float)want_brightness,2) - (pow((float)this->red(),2) - pow((float)this->blue(),2))) )); // "avg" brightness
+      this->green( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->red(),2) - pow((float)this->blue(),2))) ); // "avg" brightness
       }
     else {
       print( "    (to green)");println();
       this->green(other.green());
-      // this->blue( sqrt( ((float)(this->blue()+other.blue())/2)^2 + ((float)(this->green()+other.green())/2)^2) );
+      this->blue( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->red(),2) - pow((float)this->green(),2))) ); // "avg" brightness
       }
     }
+
   else if (this->blue() <= this->red() && this->blue() <= this->green()) {
-    print( "    blue");
+    print( "    our blue\n");
     if (other.red() <= other.green()) {
-      print( "    (red)");
+      print( "    (red)\n");
       this->red(other.red());
       this->green( sqrt( ((this->red()+other.red())/2)^2 + ((this->green()+other.green())/2)^2) );
       }
     }
 
-  print( "    corner: this");println();
+  else {
+    print("    our green\n");
+    if (other.red() <= other.blue()) {
+      print( "    (to red) @ brightness "); print(from_brightness);print("/");print(other.brightness());print(" = ");print(want_brightness);println();
+      this->red(other.red()); // other's min
+      this->blue( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->green(),2) - pow((float)this->red(),2))) ); // "avg" brightness
+      }
+    else {
+      print( "    (to blue) @ brightness "); print(from_brightness);print("/");print(other.brightness());print(" = ");print(want_brightness);println();
+      this->blue(other.blue());
+      this->red( sqrt(abs((float)want_brightness*want_brightness - pow((float)this->blue(),2) - pow((float)this->green(),2))) ); // "avg" brightness
+      }
+    }
+
+  print( "    corner: ");print(this);println();
   }
 
 byte RGB::brightness() {
-  (byte) sqrt(pow((float)this->red(),2) + pow((float)this->green(),2) + pow((float)this->blue(),2));
+  return (byte) sqrt(pow((float)this->red(),2) + pow((float)this->green(),2) + pow((float)this->blue(),2));
   }
 
 struct group_struct {
@@ -96,7 +113,7 @@ void print(RGB &rgb) {
   print("<");printw((int) &rgb, HEX);print(">(");
     print(rgb.red()),print(", ");
     print(rgb.green()),print(", ");
-    print(rgb.blue()),print(")\n");
+    print(rgb.blue()),print(")");
   }
 
 void print(RGB *rgb) { print(*rgb); }
