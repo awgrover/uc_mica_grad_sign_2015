@@ -10,10 +10,10 @@
 #include <SPI.h>         // COMMENT OUT THIS LINE FOR GEMMA OR TRINKET
 //#include <avr/power.h> // ENABLE THIS LINE FOR GEMMA OR TRINKET
 
-#define NUMPIXELS 30 // Number of LEDs in strip
+#define NUMPIXELS 60 // Number of LEDs in strip
 // Here's how to control the LEDs from any two pins:
-#define DATAPIN    4
-#define CLOCKPIN   5
+#define DATAPIN    4 // "D0"
+#define CLOCKPIN   5 // "C0"
 Adafruit_DotStar strip = Adafruit_DotStar(NUMPIXELS, DATAPIN, CLOCKPIN, DOTSTAR_BRG);
 
 const unsigned long LOOPLIMIT = 0; // 3000; // debug, msecs to limit
@@ -32,16 +32,20 @@ const int BluePin = 11;
   #define debug(x) 
   #define debugln() 
 #endif
+// #define debug_output2
 #ifdef debug_output2
   #define debug2(x) print(x)
+  #define debug2hex(x) print(x,HEX)
   #define debugln2() println()
 #else
   #define debug2(x)
+  #define debug2hex(x)
   #define debugln2()
 #endif
 
-const int GroupCt = 5; // 5; // How many sets of leds
-const int GroupSize = 3; // 3; // how many leds/group
+const int Stayingness = 3; // a "group" will only change color 1 out of Stayingess times
+const int GroupSize = 3; // how many leds/group
+const int GroupCt = NUMPIXELS/GroupSize; // How many sets of leds
 
 group_struct Groups[ GroupCt ];
 
@@ -69,7 +73,7 @@ void setup() {
   debug("Setup led-thingy\n");
 
     debug( "Random start:\n" );
-    for(int i=0; i<GroupSize; i++) {
+    for(int i=0; i<GroupCt; i++) {
         group_struct &a_group = Groups[i];
         debug("  group ");debug(i);debug(" ");debug((long)&(Groups[i]));debug(" local ");debug((long)&a_group);debugln();
         a_group.from = random(ColorLen);
@@ -87,6 +91,7 @@ void setup() {
 
     debug( "setup done\n");
     debug( "-----\n");
+    // while (1) {}
     }
 
 void loop() {
@@ -94,7 +99,7 @@ void loop() {
   
 
   debug( "\nEACH GROUP @"); debug(millis()); debugln();
-  for (int group_i=0; group_i < GroupSize; group_i++) {
+  for (int group_i=0; group_i < GroupCt; group_i++) {
     group_struct &group = Groups[group_i];
     unsigned long now = millis();
     if (group.end_at < now) {
@@ -121,7 +126,15 @@ void choose_new_to(group_struct &group) {
     group.end_at = millis() + FadeTime + random(FadeVariableTime);
     group.duration = group.end_at-millis();
     // 'to' is one of the _other_ colors, so add 1|2 and do modulus to force it right
-    group.to = (random(ColorLen-1) + 1 + group.from) % ColorLen;
+    // Only change on 1 out of stayingness times
+    if (random(Stayingness) == 0) {
+      group.to = (random(ColorLen-1) + 1 + group.from) % ColorLen;
+      debug2("Change ");debug2((long)&group);debugln2();
+      }
+    else {
+        group.from = group.to;
+        debug2("NoChange ");debug2((long)&group);debugln2();
+        }
     group.corner.red(-1); // flag for "not calc'd yet"
     }
 
@@ -133,12 +146,14 @@ void display_group(int groupi, RGB &rgb) {
     int toi = fromi + GroupSize;
     // display n=GroupSize leds:
     for (uint16_t pixel_i=fromi; pixel_i<toi; pixel_i++) {
-        debug2("== [");debug2(pixel_i); debug2("] ");debug2(rgb);debug2(" @ ");debug2(millis());debugln2();
+        debug2("== [");debug2(pixel_i); debug2("] ");debug2(rgb);debug2(" @ ");debug2(millis());debug(" #");debug2hex(rgb.as_uint());debugln2();
+
         #ifdef DirectPin
         analogWrite(RedPin, rgb.red());
         analogWrite(GreenPin, rgb.green());
         analogWrite(BluePin, rgb.blue());
         #endif
+
         strip.setPixelColor(pixel_i, rgb.as_uint());
         }
     strip.show();                     // Refresh strip
@@ -159,9 +174,13 @@ void edgepath_next_rgb(int group_i, unsigned long end_at_time, RGB &gradient_col
   if (group.corner.red()==255) { // flag for not-calc'd
     // calc and cache the corner
     debug( "calc "); debug(*from); debug(" -> "); debug(*to);debugln();
-    RGB &corner = group.corner;
-    corner.along_our_min_to_their_min(*to);
-    debug("  ");debug(from); debug(" -> "); debug(corner); debug(" -> "); debug(to); debugln();
+
+    group.corner.red( from->red());
+    group.corner.green( from->green());
+    group.corner.blue( from->blue());
+
+    group.corner.along_our_min_to_their_min(*to);
+    debug("  ");debug(from); debug(" -> "); debug(group.corner); debug(" -> "); debug(to); debugln();
     debug( "Edge["); debug(group_i); debug("] "); debug(from); debug(" -> "); debug(group.corner);debug(" -> ");debug(to);debugln(); 
     }
 

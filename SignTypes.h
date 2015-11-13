@@ -37,7 +37,16 @@ class RGB {
     void along_our_min_to_their_min(RGB &other);
     unsigned int distance(RGB &other);
     void proportional_rgb(RGB &from, RGB &to, unsigned int delta_d, unsigned int total_dist);
-    uint32_t as_uint() { return ((uint32_t)this->red())<<16 + ((uint32_t)this->green())<<8 + (uint32_t)this->blue(); }
+    uint32_t as_uint() { 
+      /*
+      print("  rgb("); Serial.print( this->red(), HEX); print(","); Serial.print(this->green(), HEX);print(","); Serial.print(this->blue(), HEX);
+        print(" uint ");Serial.print(
+          ((uint32_t)this->red()<<16) + ((uint32_t)this->green()<<8) + (uint32_t)this->blue()
+          ,HEX);
+        println();
+      */
+      return ((uint32_t)this->red()<<16) + ((uint32_t)this->green()<<8) + (uint32_t)this->blue();
+      }
 
   private:
     byte v_red; // 255 means "not calc'd yet", a bit hinky
@@ -140,4 +149,6 @@ void print(RGB &rgb) {
   }
 
 void print(RGB *rgb) { print(*rgb); }
+
+// void print(uint16_t x) { print("#"); Serial.print( (unsigned int) x); }
 
